@@ -2,13 +2,13 @@ import marketplaces.beru
 
 if __name__ == '__main__':
     # Выполни adb devices в консоли, чтобы узнать идентификатор устройства
-    d = marketplaces.beru.Beru('UGPN9D5PA6NV49UO')
+    d = marketplaces.beru.Beru('R58R5306C6Z')
     d.open()
     d.clickCatalog()
-    d.catalog('Электроника')
-    d.catalog('Смартфоны и аксессуары')
-    d.catalog('Рации и прочие телефоны')
-    d.catalog('Проводные телефоны')
+    d.catalog('Продукты питания')
+    d.catalog('Чай, кофе, какао')
+    d.catalog('Кофе')
+    d.catalog('Молотый кофе')
 
     d.parseCatalog()
     d.close()

@@ -5,6 +5,11 @@ from uiautomator2.exceptions import UiObjectNotFoundError
 import json
 
 
+class BadScrollException(Exception):
+    """Исключение для ситуации, когда приложение виснет из-за бана"""
+    pass
+
+
 class Beru(parser.Parser):
     APP_CODE = "ru.beru.android"
     DEFAULT_TIMEOUT = 5
@@ -20,8 +25,11 @@ class Beru(parser.Parser):
 
     def _exit_product_view(self):
         # ожидаем, что вью, который можно скроллить, прогрузился
+        print('[DEBUG] exiting product view')
         self.d.press('back')
         self.d(resourceId="ru.beru.android:id/searchResultListView").wait()
+        print('[DEBUG] product view exited')
+
 
     def _parse_product_view(self):
         product = {'market': 'beru', 'rank': self.rank,
@@ -48,6 +56,11 @@ class Beru(parser.Parser):
             if product_title.wait(exists=True, timeout=self.DEFAULT_TIMEOUT):
                 title = product_title.get_text()
                 product['title'] = product['sku'] = title
+            else:
+                print('[CRITICAL] SOMETHING REALLY-REALLY BAD HAPPENED! (No product title)')
+
+        # для дебага
+        print('[DEBUG] view entered')
 
         if product_price.wait(exists=True, timeout=self.DEFAULT_TIMEOUT):
             price = product_price.get_text()
@@ -91,6 +104,13 @@ class Beru(parser.Parser):
         product['description'] = product_description.get_text()
         return product
 
+    def _scroll_search_results(self):
+        while not self.results.scroll.forward():
+            parser.Helpers.randomDelay()
+            self.scroll_view_retries -= 1
+            if not self.scroll_view_retries:
+                raise BadScrollException("wtf happened")
+
 
     def catalog(self, catalog_name):
 
@@ -113,13 +133,19 @@ class Beru(parser.Parser):
 
         results.scroll.toBeginning(steps=10, max_swipes=99999)
         results.wait(timeout=5.0)
-        for elem in self.d.xpath(self.PRODUCT_VIEW_XPATH).all():
-            if elem.text not in self.already:
-                return True
+
+        while True:
+            for elem in self.d.xpath(self.PRODUCT_VIEW_XPATH).all():
+                if elem.text not in self.already:
+                    return True
+            self._scroll_search_results()
     
     def _parse_scroll_view(self):
-        results = self.d(resourceId="ru.beru.android:id/searchResultListView")
+        self.results.wait(timeout=5.0)
+        print('[DEBUG] begin of iteration of scrollable view')
         while True:
+            self.scroll_view_retries = 8
+
             for elem in self.d.xpath(self.PRODUCT_VIEW_XPATH).all():
                 # Скролл не всегда гарантирует появление нового элемента
                 if elem.text in self.already:
@@ -127,6 +153,7 @@ class Beru(parser.Parser):
                 else:
                     self.already.add(elem.text)
                     self.rank += 1
+                    print('[DEBUG] entering product view')
                     elem.click()
                     product = self._parse_product_view()
                     self.ended = datetime.now()
@@ -136,8 +163,7 @@ class Beru(parser.Parser):
                         print(json.dumps(product, ensure_ascii=False))
 
                     self._exit_product_view()
-            while not self.results.scroll.forward():
-                parser.Helpers.randomDelay()
+            self._scroll_search_results()
     
     def parseCatalog(self):
         """Точка входа в парсер."""
@@ -149,42 +175,11 @@ class Beru(parser.Parser):
         self.rank = 0
         self.started = datetime.now()
 
+        # количество попыток для детекции "бана"
+        self.scroll_view_retries = 8
+
         # TODO: тестируем то, что мы не успели что-либо сломать
         self._parse_scroll_view()
-        
-
-    def parse_Catalog(self):
-        # Дождемся пока результаты появятся
-        results = self.d(resourceId="ru.beru.android:id/searchResultListView")
-
-        results.scroll.toBeginning(steps=10, max_swipes=99999)
-        results.wait(timeout=5.0)
-
-        self.already = set()
-        self.items = []
-
-        self.rank = 0
-        self.started = datetime.now()
-
-        while True:
-            for elem in self.d.xpath(self.PRODUCT_VIEW_XPATH).all():
-                # Скролл не всегда гарантирует появление нового элемента
-                if elem.text in self.already:
-                    pass
-                else:
-                    self.already.add(elem.text)
-                    self.rank += 1
-                    elem.click()
-                    product = self._parse_product_view()
-                    self.ended = datetime.now()
-
-                    if product:
-                        self.items.append(product)
-                        print(json.dumps(product, ensure_ascii=False))
-
-                    self._exit_product_view()
-            while not results.scroll.forward():
-                parser.Helpers.randomDelay()
 
     def clickCatalog(self, and_wait=True):
         self.d(resourceId="ru.beru.android:id/nav_catalog", instance=0).click()

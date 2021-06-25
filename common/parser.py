@@ -5,7 +5,7 @@ import random
 
 class Helpers:
     @staticmethod
-    def randomDelay(min=2000, max=5000):
+    def randomDelay(min=4000, max=6000):
         i = random.randint(min, max)
         time.sleep(i / 1000)
 

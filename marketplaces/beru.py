@@ -3,6 +3,7 @@ import unicodedata
 from datetime import date, datetime
 from uiautomator2.exceptions import UiObjectNotFoundError
 import json
+import codecs
 
 
 class BadScrollException(Exception):
@@ -15,6 +16,13 @@ class Beru(parser.Parser):
     DEFAULT_TIMEOUT = 5
     PRODUCT_VIEW_XPATH = "//*[@resource-id='ru.beru.android:id/searchResultListView']//*[@resource-id='ru.beru.android:id/productOfferTitleView']"
 
+    def _save_result(self):
+        parsing_time_delta = self.ended - self.started
+        result = {'items': self.items,
+                  'parsingTime': int(parsing_time_delta.seconds * 1000 + parsing_time_delta.microseconds / 1000)}
+        print(json.dumps(result, indent=4, ensure_ascii=False),
+              file=codecs.open('output.json', 'w+', 'utf8'))
+
     def open(self, **kwargs):
         super(Beru, self).close(self.APP_CODE)
         super(Beru, self).open(self.APP_CODE)
@@ -25,10 +33,8 @@ class Beru(parser.Parser):
 
     def _exit_product_view(self):
         # ожидаем, что вью, который можно скроллить, прогрузился
-        print('[DEBUG] exiting product view')
         self.d.press('back')
         self.d(resourceId="ru.beru.android:id/searchResultListView").wait()
-        print('[DEBUG] product view exited')
 
 
     def _parse_product_view(self):
@@ -57,10 +63,7 @@ class Beru(parser.Parser):
                 title = product_title.get_text()
                 product['title'] = product['sku'] = title
             else:
-                print('[CRITICAL] SOMETHING REALLY-REALLY BAD HAPPENED! (No product title)')
-
-        # для дебага
-        print('[DEBUG] view entered')
+                print('Product title not found')
 
         if product_price.wait(exists=True, timeout=self.DEFAULT_TIMEOUT):
             price = product_price.get_text()
@@ -77,9 +80,6 @@ class Beru(parser.Parser):
 
         desc_rid = 'ru.beru.android:id/characteristicsAndDescriptionDescription'
 
-        # scroll view может быть не прогружен, а может и в принципе отсутствовать
-        # Одна из разновидностей вот такая:
-        # scroll_view = self.d(resourceId='ru.beru.android:id/viewPager')
         scroll_view = self.d(scrollable=True)
         if not scroll_view.wait(exists=True, timeout=2):
             return product
@@ -96,7 +96,6 @@ class Beru(parser.Parser):
         except UiObjectNotFoundError:
             return product
 
-        # после обнволения запрос нужно выполнить заново
         product_description = self.d(resourceId=desc_rid, instance=0)
         if not product_description.wait(exists=True, timeout=self.DEFAULT_TIMEOUT):
             return product
@@ -109,7 +108,7 @@ class Beru(parser.Parser):
             parser.Helpers.randomDelay()
             self.scroll_view_retries -= 1
             if not self.scroll_view_retries:
-                raise BadScrollException("wtf happened")
+                raise BadScrollException("Search results scrolling failed.")
 
 
     def catalog(self, catalog_name):
@@ -142,7 +141,6 @@ class Beru(parser.Parser):
     
     def _parse_scroll_view(self):
         self.results.wait(timeout=5.0)
-        print('[DEBUG] begin of iteration of scrollable view')
         while True:
             self.scroll_view_retries = 8
 
@@ -151,9 +149,9 @@ class Beru(parser.Parser):
                 if elem.text in self.already:
                     pass
                 else:
+                    parser.Helpers.randomDelay()
                     self.already.add(elem.text)
                     self.rank += 1
-                    print('[DEBUG] entering product view')
                     elem.click()
                     product = self._parse_product_view()
                     self.ended = datetime.now()
@@ -161,7 +159,7 @@ class Beru(parser.Parser):
                     if product:
                         self.items.append(product)
                         print(json.dumps(product, ensure_ascii=False))
-
+                    parser.Helpers.randomDelay()
                     self._exit_product_view()
             self._scroll_search_results()
     
@@ -178,7 +176,6 @@ class Beru(parser.Parser):
         # количество попыток для детекции "бана"
         self.scroll_view_retries = 8
 
-        # TODO: тестируем то, что мы не успели что-либо сломать
         self._parse_scroll_view()
 
     def clickCatalog(self, and_wait=True):
